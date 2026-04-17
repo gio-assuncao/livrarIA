@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+backend/venv/
+backend/.venv/
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# HuggingFace cache (don't commit model weights)
+*.bin
+*.safetensors
