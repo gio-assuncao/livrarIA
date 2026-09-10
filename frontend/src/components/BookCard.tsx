@@ -20,6 +20,15 @@ export default function BookCard({ userBook, onRate, onStatusChange, onDelete, o
     <div className="flex flex-col gap-3 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
+        {book.cover_url && (
+          <img
+            src={book.cover_url}
+            alt=""
+            className="w-12 h-[4.5rem] object-cover rounded shadow-sm shrink-0 bg-neutral-200 dark:bg-neutral-800"
+            loading="lazy"
+            onError={e => { e.currentTarget.style.display = 'none' }}
+          />
+        )}
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 truncate text-sm leading-tight">
             {book.title}

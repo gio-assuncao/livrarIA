@@ -1,6 +1,10 @@
 import logging
+import re
+import threading
+import unicodedata
+from collections import Counter
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -8,68 +12,249 @@ from schemas import RecommendationItem
 
 logger = logging.getLogger(__name__)
 
+# Score weights — see README "How Recommendations Work"
+W_SEMANTIC = 0.6
+W_CATEGORY = 0.3
+W_FRESHNESS = 0.1
+
+
+# ── Category normalization ─────────────────────────────────────────────────────
+# Google Books returns things like "Fiction / Thrillers / Suspense", Open Library
+# returns loose English subjects, and manual entries are usually in Portuguese.
+# We split composite labels, strip accents, lowercase, and map common synonyms
+# to a single canonical token so that Jaccard overlap and genre filters work
+# across sources and languages.
+
+_SYNONYMS: Dict[str, str] = {
+    # EN -> canonical
+    "fiction": "ficcao",
+    "novel": "ficcao",
+    "novels": "ficcao",
+    "literary fiction": "ficcao",
+    "thriller": "suspense",
+    "thrillers": "suspense",
+    "suspense": "suspense",
+    "mystery": "misterio",
+    "mystery & detective": "misterio",
+    "detective": "misterio",
+    "crime": "policial",
+    "fantasy": "fantasia",
+    "fantasy fiction": "fantasia",
+    "science fiction": "ficcao cientifica",
+    "sci-fi": "ficcao cientifica",
+    "scifi": "ficcao cientifica",
+    "horror": "terror",
+    "horror fiction": "terror",
+    "romance": "romance",
+    "love stories": "romance",
+    "historical fiction": "ficcao historica",
+    "history": "historia",
+    "biography": "biografia",
+    "biography & autobiography": "biografia",
+    "autobiography": "biografia",
+    "memoir": "biografia",
+    "self-help": "autoajuda",
+    "self help": "autoajuda",
+    "psychology": "psicologia",
+    "philosophy": "filosofia",
+    "poetry": "poesia",
+    "juvenile fiction": "infantojuvenil",
+    "young adult fiction": "jovem adulto",
+    "young adult": "jovem adulto",
+    "adventure": "aventura",
+    "adventure stories": "aventura",
+    "humor": "humor",
+    "comics & graphic novels": "quadrinhos",
+    "graphic novels": "quadrinhos",
+    "comics": "quadrinhos",
+    "business & economics": "negocios",
+    "business": "negocios",
+    "economics": "economia",
+    "computers": "tecnologia",
+    "technology": "tecnologia",
+    "science": "ciencia",
+    "religion": "religiao",
+    "classics": "classicos",
+    "short stories": "contos",
+    "dystopian": "distopia",
+    "dystopias": "distopia",
+    # PT variants -> canonical
+    "ficção": "ficcao",
+    "ficcao": "ficcao",
+    "romance policial": "policial",
+    "policial": "policial",
+    "mistério": "misterio",
+    "misterio": "misterio",
+    "fantasia": "fantasia",
+    "ficção científica": "ficcao cientifica",
+    "ficcao cientifica": "ficcao cientifica",
+    "terror": "terror",
+    "ficção histórica": "ficcao historica",
+    "ficcao historica": "ficcao historica",
+    "história": "historia",
+    "historia": "historia",
+    "biografia": "biografia",
+    "autoajuda": "autoajuda",
+    "auto-ajuda": "autoajuda",
+    "psicologia": "psicologia",
+    "filosofia": "filosofia",
+    "poesia": "poesia",
+    "infantojuvenil": "infantojuvenil",
+    "infanto-juvenil": "infantojuvenil",
+    "jovem adulto": "jovem adulto",
+    "aventura": "aventura",
+    "quadrinhos": "quadrinhos",
+    "hq": "quadrinhos",
+    "negócios": "negocios",
+    "negocios": "negocios",
+    "economia": "economia",
+    "tecnologia": "tecnologia",
+    "ciência": "ciencia",
+    "ciencia": "ciencia",
+    "religião": "religiao",
+    "religiao": "religiao",
+    "clássicos": "classicos",
+    "classicos": "classicos",
+    "contos": "contos",
+    "distopia": "distopia",
+}
+
+_GENERIC = {"general", "geral", "misc", "miscellaneous", "outros", "other"}
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)
+    )
+
+
+def normalize_category(label: str) -> Set[str]:
+    """
+    Turn one raw category label into a set of canonical tokens.
+    "Fiction / Thrillers / Suspense" -> {"ficcao", "suspense"}
+    "Ficção Científica"              -> {"ficcao cientifica"}
+    """
+    if not label:
+        return set()
+    out: Set[str] = set()
+    for part in re.split(r"[/,;|>]+", label):
+        raw = part.strip().lower()
+        if not raw:
+            continue
+        canonical = _SYNONYMS.get(raw) or _SYNONYMS.get(_strip_accents(raw))
+        if canonical is None:
+            canonical = _strip_accents(raw)
+        if canonical in _GENERIC:
+            continue
+        out.add(canonical)
+    return out
+
+
+def normalize_categories(labels: Optional[Iterable[str]]) -> Set[str]:
+    out: Set[str] = set()
+    for label in labels or []:
+        out |= normalize_category(label)
+    return out
+
+
+# ── Recommender ────────────────────────────────────────────────────────────────
 
 class RecommenderService:
-    """Hybrid recommender: semantic (FAISS) + category overlap + freshness."""
+    """
+    Hybrid recommender: semantic (FAISS) + category overlap + freshness.
 
-    def __init__(self):
+    Candidate pool = CacheBook (books discovered through external searches).
+    User profile   = weighted average of Book embeddings the user has read / is reading.
+
+    The FAISS index is an IndexIDMap over IndexFlatIP keyed by CacheBook.id, so
+    entries can be added and removed individually without rebuilding.
+    """
+
+    def __init__(self, dim: int = 384):
         self.index = None
-        self.book_ids: List[int] = []
-        self.dim = 384
+        self.dim = dim
+        self._lock = threading.Lock()
 
     # ── Index lifecycle ────────────────────────────────────────────────────────
 
-    def build_faiss_index(self, db):
-        """Load all book embeddings from DB and build FAISS index. Called at startup."""
+    def _new_index(self):
         import faiss
-        from models import Book
+        return faiss.IndexIDMap(faiss.IndexFlatIP(self.dim))
 
-        books = db.query(Book).filter(Book.embedding.isnot(None)).all()
-        self.index = faiss.IndexFlatIP(self.dim)
-        self.book_ids = []
+    def build_faiss_index(self, db):
+        """Load all CacheBook embeddings from DB and (re)build the index. Called at startup."""
+        from models import CacheBook
 
-        if not books:
-            logger.info("FAISS index built (empty — no books with embeddings yet).")
+        rows = (
+            db.query(CacheBook.id, CacheBook.embedding)
+            .filter(CacheBook.embedding.isnot(None))
+            .all()
+        )
+
+        vectors, ids = [], []
+        for cid, emb in rows:
+            if emb and len(emb) == self.dim:
+                vectors.append(emb)
+                ids.append(cid)
+
+        with self._lock:
+            self.index = self._new_index()
+            if vectors:
+                self.index.add_with_ids(
+                    np.asarray(vectors, dtype=np.float32),
+                    np.asarray(ids, dtype=np.int64),
+                )
+
+        logger.info(f"FAISS index built with {len(ids)} catalog books.")
+
+    def add_to_index(self, cache_book_id: int, embedding: List[float]):
+        """Add (or replace) a single catalog book in the live index."""
+        if self.index is None or not embedding or len(embedding) != self.dim:
             return
+        with self._lock:
+            self.index.remove_ids(np.asarray([cache_book_id], dtype=np.int64))
+            self.index.add_with_ids(
+                np.asarray([embedding], dtype=np.float32),
+                np.asarray([cache_book_id], dtype=np.int64),
+            )
 
-        vectors = []
-        for book in books:
-            if book.embedding and len(book.embedding) == self.dim:
-                vectors.append(book.embedding)
-                self.book_ids.append(book.id)
+    def add_many_to_index(self, items: List[Tuple[int, List[float]]]):
+        items = [(i, e) for i, e in items if e and len(e) == self.dim]
+        if self.index is None or not items:
+            return
+        ids = np.asarray([i for i, _ in items], dtype=np.int64)
+        vecs = np.asarray([e for _, e in items], dtype=np.float32)
+        with self._lock:
+            self.index.remove_ids(ids)
+            self.index.add_with_ids(vecs, ids)
 
-        if vectors:
-            matrix = np.array(vectors, dtype=np.float32)
-            self.index.add(matrix)
-
-        logger.info(f"FAISS index built with {len(self.book_ids)} books.")
-
-    def add_to_index(self, book_id: int, embedding: List[float]):
-        """Incrementally add a single book to the live index (no rebuild needed)."""
+    def remove_from_index(self, cache_book_id: int):
         if self.index is None:
             return
-        vector = np.array([embedding], dtype=np.float32)
-        self.index.add(vector)
-        self.book_ids.append(book_id)
+        with self._lock:
+            self.index.remove_ids(np.asarray([cache_book_id], dtype=np.int64))
+
+    @property
+    def size(self) -> int:
+        return int(self.index.ntotal) if self.index is not None else 0
 
     # ── User profile ───────────────────────────────────────────────────────────
 
     def compute_user_profile(self, user_books) -> Optional[np.ndarray]:
         """
-        Weighted average of liked book embeddings.
-        Weight = rating (1-5). Books being read without rating use weight=2.
+        Weighted average of read/reading book embeddings.
+        Weight = rating (1-5). Books without rating use weight=2.
         Returns a normalized numpy vector, or None if no data.
         """
-        from models import Book
         weighted_sum = np.zeros(self.dim, dtype=np.float32)
         total_weight = 0.0
 
         for ub in user_books:
-            book: Book = ub.book
+            book = ub.book
             if not book or not book.embedding or len(book.embedding) != self.dim:
                 continue
             weight = float(ub.rating) if ub.rating else 2.0
-            weighted_sum += weight * np.array(book.embedding, dtype=np.float32)
+            weighted_sum += weight * np.asarray(book.embedding, dtype=np.float32)
             total_weight += weight
 
         if total_weight == 0:
@@ -81,25 +266,57 @@ class RecommenderService:
             profile = profile / norm
         return profile
 
-    # ── Feature matching ───────────────────────────────────────────────────────
+    @staticmethod
+    def liked_categories(user_books) -> Set[str]:
+        """Canonical category tokens across the user's read/reading books."""
+        cats: Set[str] = set()
+        for ub in user_books:
+            if ub.book:
+                cats |= normalize_categories(ub.book.categories)
+        return cats
 
-    def compute_feature_match(self, candidate_categories: List[str], liked_categories: set) -> float:
-        """Jaccard similarity between candidate's categories and liked books' categories."""
-        if not candidate_categories or not liked_categories:
+    @staticmethod
+    def top_interests(user_books, n_authors: int = 3, n_categories: int = 3) -> Tuple[List[str], List[str]]:
+        """Most frequent authors and raw categories — used by the discover step."""
+        authors: Counter = Counter()
+        cats: Counter = Counter()
+        for ub in user_books:
+            b = ub.book
+            if not b:
+                continue
+            weight = ub.rating or 2
+            if b.author and b.author.lower() != "unknown":
+                authors[b.author] += weight
+            for c in b.categories or []:
+                for part in re.split(r"[/,;|>]+", c):
+                    part = part.strip()
+                    if part and part.lower() not in _GENERIC:
+                        cats[part] += weight
+        return (
+            [a for a, _ in authors.most_common(n_authors)],
+            [c for c, _ in cats.most_common(n_categories)],
+        )
+
+    # ── Feature scoring ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def compute_feature_match(candidate_categories: Iterable[str], liked: Set[str]) -> float:
+        """Jaccard similarity between canonical category sets."""
+        cand = normalize_categories(candidate_categories)
+        if not cand or not liked:
             return 0.0
-        candidate_set = set(c.lower() for c in candidate_categories)
-        intersection = candidate_set & liked_categories
-        union = candidate_set | liked_categories
-        return len(intersection) / len(union) if union else 0.0
+        union = cand | liked
+        return len(cand & liked) / len(union) if union else 0.0
 
-    def compute_freshness(self, created_at: Optional[datetime]) -> float:
-        """Books added more recently score higher. Decays over ~30 days."""
+    @staticmethod
+    def compute_freshness(created_at: Optional[datetime]) -> float:
+        """Books discovered more recently score higher. Decays over ~30 days."""
         if created_at is None:
             return 0.5
         now = datetime.now(timezone.utc)
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-        days = max(0, (now - created_at).days)
+        days = max(0.0, (now - created_at).total_seconds() / 86400.0)
         return 1.0 / (1.0 + days / 30.0)
 
     # ── Hybrid ranking ─────────────────────────────────────────────────────────
@@ -110,93 +327,96 @@ class RecommenderService:
         limit: int,
         db,
         genre_filter: Optional[str] = None,
-        library_book_ids: Optional[set] = None,
+        liked: Optional[Set[str]] = None,
     ) -> List[RecommendationItem]:
         """
-        1. FAISS search for top candidates (over-fetch by 3x)
-        2. Filter already-in-library books
-        3. Score: semantic*0.6 + feature_match*0.3 + freshness*0.1
+        1. FAISS search over the catalog (over-fetch to survive filtering)
+        2. Drop candidates already in the user's library (same external_id+source)
+        3. Score: semantic*0.6 + category_overlap*0.3 + freshness*0.1
         4. Return top `limit`
         """
-        from models import Book, UserBook
+        from models import Book, CacheBook, UserBook
 
         if self.index is None or self.index.ntotal == 0:
             return []
 
-        # Collect user's liked books for feature matching
-        user_books_all = (
-            db.query(UserBook)
-            .filter(UserBook.status.in_(["read", "reading"]))
-            .all()
-        )
-        liked_categories: set = set()
-        for ub in user_books_all:
-            if ub.book and ub.book.categories:
-                for cat in ub.book.categories:
-                    liked_categories.add(cat.lower())
+        if liked is None:
+            user_books = db.query(UserBook).filter(UserBook.status.in_(["read", "reading"])).all()
+            liked = self.liked_categories(user_books)
 
-        if library_book_ids is None:
-            library_book_ids = {ub.book_id for ub in db.query(UserBook).all()}
+        # Books already in the library, keyed by (external_id, source)
+        in_library: Set[Tuple[str, str]] = {
+            (ext, src)
+            for ext, src in db.query(Book.external_id, Book.source).filter(Book.external_id.isnot(None))
+        }
 
-        # FAISS search
-        k = min(self.index.ntotal, limit * 5)
-        query = np.array([user_profile], dtype=np.float32)
-        scores, indices = self.index.search(query, k)
+        genre_tokens = normalize_category(genre_filter) if genre_filter else set()
+        genre_raw = _strip_accents(genre_filter.lower().strip()) if genre_filter else ""
+
+        k = min(self.index.ntotal, max(limit * 5, 20))
+        query = np.asarray([user_profile], dtype=np.float32)
+        with self._lock:
+            scores, ids = self.index.search(query, k)
+
+        candidate_ids = [int(i) for i in ids[0] if i >= 0]
+        sim_by_id = {int(i): float(s) for i, s in zip(ids[0], scores[0]) if i >= 0}
+        if not candidate_ids:
+            return []
+
+        rows = db.query(CacheBook).filter(CacheBook.id.in_(candidate_ids)).all()
+        by_id = {r.id: r for r in rows}
 
         results: List[RecommendationItem] = []
-        seen_ids = set()
-
-        for idx, sim_score in zip(indices[0], scores[0]):
-            if idx < 0 or idx >= len(self.book_ids):
+        for cid in candidate_ids:  # keep FAISS order for stable tie-breaks
+            cb = by_id.get(cid)
+            if not cb:
                 continue
-            book_id = self.book_ids[idx]
-            if book_id in library_book_ids or book_id in seen_ids:
-                continue
-            seen_ids.add(book_id)
-
-            book = db.query(Book).filter(Book.id == book_id).first()
-            if not book:
+            if (cb.external_id, cb.source) in in_library:
                 continue
 
-            # Genre filter
+            cand_tokens = normalize_categories(cb.categories)
             if genre_filter:
-                cats_lower = [c.lower() for c in (book.categories or [])]
-                if not any(genre_filter.lower() in c for c in cats_lower):
+                raw_cats = " ".join(_strip_accents(c.lower()) for c in (cb.categories or []))
+                if not (cand_tokens & genre_tokens) and genre_raw not in raw_cats:
                     continue
 
-            feature_score = self.compute_feature_match(book.categories or [], liked_categories)
-            freshness_score = self.compute_freshness(None)  # CacheBooks have no created_at
-
-            final_score = (float(sim_score) * 0.6) + (feature_score * 0.3) + (freshness_score * 0.1)
-
-            # Build reason string
-            top_cats = (book.categories or [])[:2]
-            reason = (
-                f"Matched {int(float(sim_score) * 100)}% semantically with your reading profile."
-            )
-            if top_cats:
-                reason += f" Categories: {', '.join(top_cats)}."
-            if feature_score > 0.1:
-                reason += f" Strong category overlap with books you liked."
+            sim = sim_by_id[cid]
+            feature = self.compute_feature_match(cb.categories or [], liked)
+            fresh = self.compute_freshness(cb.created_at)
+            final = sim * W_SEMANTIC + feature * W_CATEGORY + fresh * W_FRESHNESS
 
             results.append(
                 RecommendationItem(
-                    id=book.id,
-                    title=book.title,
-                    author=book.author,
-                    description=book.description,
-                    categories=book.categories or [],
-                    source=book.source,
-                    score=round(final_score, 4),
-                    reason=reason,
+                    id=cb.id,
+                    external_id=cb.external_id,
+                    title=cb.title,
+                    author=cb.author or "Autor desconhecido",
+                    description=cb.description,
+                    categories=cb.categories or [],
+                    source=cb.source,
+                    cover_url=cb.cover_url,
+                    score=round(float(final), 4),
+                    semantic_score=round(sim, 4),
+                    category_score=round(feature, 4),
+                    reason=self._build_reason(sim, feature, cb.categories or []),
                 )
             )
 
-            if len(results) >= limit * 2:
-                break
-
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
+
+    @staticmethod
+    def _build_reason(sim: float, feature: float, categories: List[str]) -> str:
+        pct = int(round(max(0.0, min(1.0, sim)) * 100))
+        reason = f"Combina {pct}% com o seu perfil de leitura."
+        top = [c for c in categories if c][:2]
+        if top:
+            reason += f" Categorias: {', '.join(top)}."
+        if feature >= 0.34:
+            reason += " Forte sobreposição de gêneros com livros que você gostou."
+        elif feature > 0.1:
+            reason += " Alguns gêneros em comum com o que você já leu."
+        return reason
 
 
 recommender_service = RecommenderService()

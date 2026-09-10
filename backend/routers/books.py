@@ -6,7 +6,6 @@ from database import get_db
 from models import Book, UserBook
 from schemas import AddBookRequest, BookRead, UserBookRead, UserBookUpdate
 from services.embedding import embedding_service
-from services.recommender import recommender_service
 
 router = APIRouter(prefix="/api/books", tags=["books"])
 
@@ -44,6 +43,7 @@ def add_book(payload: AddBookRequest, db: Session = Depends(get_db)):
         author=payload.author,
         description=payload.description,
         categories=payload.categories,
+        cover_url=payload.cover_url,
         embedding=embedding,
         source=payload.source,
     )
@@ -61,9 +61,6 @@ def add_book(payload: AddBookRequest, db: Session = Depends(get_db)):
     db.add(user_book)
     db.commit()
     db.refresh(user_book)
-
-    # Update FAISS index incrementally
-    recommender_service.add_to_index(book.id, embedding)
 
     return user_book
 
@@ -106,9 +103,7 @@ def update_user_book(book_id: int, payload: UserBookUpdate, db: Session = Depend
         text = embedding_service.build_text(
             book.title, book.author, book.description or "", book.categories or []
         )
-        new_embedding = embedding_service.get_embedding(text)
-        book.embedding = new_embedding
-        recommender_service.add_to_index(book.id, new_embedding)
+        book.embedding = embedding_service.get_embedding(text)
 
     db.commit()
     db.refresh(ub)

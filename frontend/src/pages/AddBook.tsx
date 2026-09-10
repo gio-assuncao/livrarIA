@@ -208,11 +208,22 @@ export default function AddBook() {
                   key={`${result.source}-${result.external_id}`}
                   className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 flex flex-col gap-3"
                 >
-                  <div>
-                    <h3 className="font-semibold text-neutral-100 text-sm leading-tight">
-                      {result.title}
-                    </h3>
-                    <p className="text-neutral-400 text-xs mt-0.5">{result.author ?? 'Autor desconhecido'}</p>
+                  <div className="flex items-start gap-3">
+                    {result.cover_url && (
+                      <img
+                        src={result.cover_url}
+                        alt=""
+                        className="w-12 h-[4.5rem] object-cover rounded shadow-sm shrink-0 bg-neutral-800"
+                        loading="lazy"
+                        onError={e => { e.currentTarget.style.display = 'none' }}
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-neutral-100 text-sm leading-tight">
+                        {result.title}
+                      </h3>
+                      <p className="text-neutral-400 text-xs mt-0.5">{result.author ?? 'Autor desconhecido'}</p>
+                    </div>
                   </div>
                   {result.description && (
                     <p className="text-neutral-500 text-xs line-clamp-3 leading-relaxed">

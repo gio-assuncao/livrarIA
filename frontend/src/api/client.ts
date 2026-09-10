@@ -7,6 +7,7 @@ import type {
   ExternalSearchResult,
   ChatMessage,
   ChatResponse,
+  DiscoverResponse,
 } from '../types'
 
 const api = axios.create({
@@ -35,6 +36,10 @@ export const deleteBook = (id: number): Promise<void> =>
 
 export const getRecommendations = (limit = 10, genre?: string): Promise<RecommendationItem[]> =>
   api.get('/api/recommendations', { params: { limit, ...(genre ? { genre } : {}) } }).then(r => r.data)
+
+/** Grow the catalog by searching external APIs for the user's top authors/categories. */
+export const discoverBooks = (): Promise<DiscoverResponse> =>
+  api.post('/api/recommendations/discover').then(r => r.data)
 
 // ── External search ────────────────────────────────────────────────────────────
 

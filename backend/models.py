@@ -1,10 +1,16 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, JSON, Float, DateTime, ForeignKey, UniqueConstraint
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Book(Base):
+    """A book that is in the user's library (referenced by at least one UserBook)."""
+
     __tablename__ = "books"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -14,6 +20,8 @@ class Book(Base):
     categories = Column(JSON, default=list)  # list of strings
     embedding = Column(JSON, nullable=True)  # list of floats (384-dim)
     source = Column(String, default="manual")  # "manual", "google_books", "open_library"
+    external_id = Column(String, nullable=True, index=True)  # id at the external source, if imported
+    cover_url = Column(String, nullable=True)  # thumbnail URL from the external source
 
     user_books = relationship("UserBook", back_populates="book", cascade="all, delete-orphan")
 
@@ -27,12 +35,17 @@ class UserBook(Base):
     status = Column(String, nullable=False, default="wishlist")  # "read", "reading", "wishlist"
     tags = Column(JSON, default=list)  # list of strings
     review = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     book = relationship("Book", back_populates="user_books")
 
 
 class CacheBook(Base):
+    """
+    Catalog of books discovered through external searches.
+    This is the candidate pool for recommendations.
+    """
+
     __tablename__ = "cache_books"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -42,7 +55,9 @@ class CacheBook(Base):
     author = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     categories = Column(JSON, default=list)
+    cover_url = Column(String, nullable=True)
     embedding = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow)  # drives the freshness score
 
     __table_args__ = (
         UniqueConstraint("external_id", "source", name="uq_external_source"),

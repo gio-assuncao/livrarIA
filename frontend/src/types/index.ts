@@ -5,7 +5,8 @@ export interface Book {
   description: string | null
   categories: string[]
   source: string
-  embedding?: number[] | null
+  cover_url?: string | null
+  external_id?: string | null
 }
 
 export interface UserBook {
@@ -25,6 +26,7 @@ export interface AddBookPayload {
   description?: string
   categories?: string[]
   source?: string
+  cover_url?: string
   status: 'read' | 'reading' | 'wishlist'
   rating?: number
   tags?: string[]
@@ -43,14 +45,24 @@ export interface UserBookUpdate {
 }
 
 export interface RecommendationItem {
-  id: number
+  id: number            // catalog id
+  external_id: string
   title: string
   author: string
   description: string | null
   categories: string[]
   source: string
+  cover_url?: string | null
   score: number
+  semantic_score: number
+  category_score: number
   reason: string
+}
+
+export interface DiscoverResponse {
+  queries: string[]
+  new_books: number
+  catalog_size: number
 }
 
 export interface ExternalSearchResult {
@@ -60,6 +72,7 @@ export interface ExternalSearchResult {
   author: string | null
   description: string | null
   categories: string[]
+  cover_url?: string | null
 }
 
 export interface ChatMessage {

@@ -23,6 +23,7 @@ REGRAS IMPORTANTES:
 - Você DEVE chamar a ferramenta apropriada antes de recomendar qualquer livro. Nunca recomende livros diretamente do seu próprio conhecimento.
 - Após receber os resultados da ferramenta, explique POR QUÊ cada recomendação é adequada para o usuário.
 - Seja concisa, acolhedora e específica. Faça referência ao gosto do usuário ao explicar as recomendações.
+- Se get_recommendations retornar status "empty_catalog", chame search_books com um tema ou autor que o usuário gosta (isso alimenta o catálogo) e depois chame get_recommendations de novo.
 - Se o usuário estiver apenas conversando (sem pedido de livros), responda naturalmente sem chamar ferramentas.
 - Responda sempre em português do Brasil."""
 
@@ -192,14 +193,23 @@ class AgentService:
                 "recommendations": [],
             })
 
-        library_ids = {ub.book_id for ub in db.query(UserBook).all()}
         recs = recommender_service.hybrid_rank(
             user_profile=user_profile,
-            limit=limit,
+            limit=min(int(limit or 5), 20),
             db=db,
             genre_filter=genre_filter,
-            library_book_ids=library_ids,
+            liked=recommender_service.liked_categories(user_books),
         )
+
+        if not recs:
+            return json.dumps({
+                "status": "empty_catalog",
+                "message": (
+                    "The catalog has no candidates yet. Call search_books with a topic or author "
+                    "the user likes, then call get_recommendations again."
+                ),
+                "recommendations": [],
+            })
 
         return json.dumps({
             "status": "ok",
@@ -234,9 +244,9 @@ class AgentService:
                 })
 
         if source in ("google_books", "open_library", "all"):
-            external = await external_api_service.search(
-                query, source if source != "local" else "all"
-            )
+            from services.catalog import cache_results
+            external = await external_api_service.search(query, source)
+            await cache_results(db, external)  # grows the recommendation catalog
             for r in external[:8]:
                 results.append({
                     "source": r.source,
