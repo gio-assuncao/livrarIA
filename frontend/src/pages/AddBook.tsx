@@ -68,10 +68,104 @@ export default function AddBook() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-10">
+
+      {/* External Search */}
+      <section>
+        <h1 className="text-xl font-bold text-neutral-100 mb-1">Pesquisar em Bibliotecas Externas</h1>
+        <p className="text-neutral-500 text-sm mb-6">Encontre livros no Google Books e Open Library.</p>
+
+        <form onSubmit={handleSearch} className="flex gap-3 max-w-xl mb-6">
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-violet-600"
+            placeholder="Pesquise por título, autor ou tema..."
+          />
+          <select
+            value={searchSource}
+            onChange={e => setSearchSource(e.target.value)}
+            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-violet-600"
+          >
+            <option value="all">Todas as Fontes</option>
+            <option value="google_books">Google Books</option>
+            <option value="open_library">Open Library</option>
+          </select>
+          <button
+            type="submit"
+            disabled={isSearching}
+            className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          >
+            <FiSearch size={15} />
+            {isSearching ? 'Buscando...' : 'Buscar'}
+          </button>
+        </form>
+
+        {searchResults.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {searchResults.map(result => {
+              const isImported = importedIds.has(result.external_id)
+              const isImporting = importingId === result.external_id
+              return (
+                <div
+                  key={`${result.source}-${result.external_id}`}
+                  className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 flex flex-col gap-3"
+                >
+                  <div className="flex items-start gap-3">
+                    {result.cover_url && (
+                      <img
+                        src={result.cover_url}
+                        alt=""
+                        className="w-12 h-[4.5rem] object-cover rounded shadow-sm shrink-0 bg-neutral-800"
+                        loading="lazy"
+                        onError={e => { e.currentTarget.style.display = 'none' }}
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-neutral-100 text-sm leading-tight">
+                        {result.title}
+                      </h3>
+                      <p className="text-neutral-400 text-xs mt-0.5">{result.author ?? 'Autor desconhecido'}</p>
+                    </div>
+                  </div>
+                  {result.description && (
+                    <p className="text-neutral-500 text-xs line-clamp-3 leading-relaxed">
+                      {result.description}
+                    </p>
+                  )}
+                  {result.categories.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {result.categories.slice(0, 3).map(c => (
+                        <span key={c} className="text-xs bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded-full">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between mt-auto">
+                    <span className="text-xs text-neutral-600 capitalize">{result.source.replace('_', ' ')}</span>
+                    <button
+                      onClick={() => handleImport(result)}
+                      disabled={isImported || isImporting}
+                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        isImported
+                          ? 'bg-emerald-900/40 text-emerald-400 cursor-default'
+                          : 'bg-violet-600 hover:bg-violet-500 text-white'
+                      }`}
+                    >
+                      {isImported ? <FiCheck size={12} /> : <FiPlus size={12} />}
+                      {isImporting ? 'Adicionando...' : isImported ? 'Adicionado' : 'Adicionar à Lista'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
       {/* Manual Add */}
       <section>
-        <h1 className="text-xl font-bold text-neutral-100 mb-1">Adicionar Livro Manualmente</h1>
-        <p className="text-neutral-500 text-sm mb-6">Preencha os detalhes do livro diretamente.</p>
+        <h2 className="text-lg font-semibold text-neutral-100 mb-1">Adicionar Livro Manualmente</h2>
+        <p className="text-neutral-500 text-sm mb-6">Não achou na pesquisa? Preencha os detalhes do livro diretamente.</p>
 
         <form onSubmit={handleManualSubmit} className="max-w-xl space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -165,100 +259,6 @@ export default function AddBook() {
             {createBook.isPending ? 'Adicionando...' : addedManual ? 'Adicionado!' : 'Adicionar Livro'}
           </button>
         </form>
-      </section>
-
-      {/* External Search */}
-      <section>
-        <h2 className="text-lg font-semibold text-neutral-100 mb-1">Pesquisar em Bibliotecas Externas</h2>
-        <p className="text-neutral-500 text-sm mb-6">Encontre livros no Google Books e Open Library.</p>
-
-        <form onSubmit={handleSearch} className="flex gap-3 max-w-xl mb-6">
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-violet-600"
-            placeholder="Pesquise por título, autor ou tema..."
-          />
-          <select
-            value={searchSource}
-            onChange={e => setSearchSource(e.target.value)}
-            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-violet-600"
-          >
-            <option value="all">Todas as Fontes</option>
-            <option value="google_books">Google Books</option>
-            <option value="open_library">Open Library</option>
-          </select>
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-          >
-            <FiSearch size={15} />
-            {isSearching ? 'Buscando...' : 'Buscar'}
-          </button>
-        </form>
-
-        {searchResults.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {searchResults.map(result => {
-              const isImported = importedIds.has(result.external_id)
-              const isImporting = importingId === result.external_id
-              return (
-                <div
-                  key={`${result.source}-${result.external_id}`}
-                  className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 flex flex-col gap-3"
-                >
-                  <div className="flex items-start gap-3">
-                    {result.cover_url && (
-                      <img
-                        src={result.cover_url}
-                        alt=""
-                        className="w-12 h-[4.5rem] object-cover rounded shadow-sm shrink-0 bg-neutral-800"
-                        loading="lazy"
-                        onError={e => { e.currentTarget.style.display = 'none' }}
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-neutral-100 text-sm leading-tight">
-                        {result.title}
-                      </h3>
-                      <p className="text-neutral-400 text-xs mt-0.5">{result.author ?? 'Autor desconhecido'}</p>
-                    </div>
-                  </div>
-                  {result.description && (
-                    <p className="text-neutral-500 text-xs line-clamp-3 leading-relaxed">
-                      {result.description}
-                    </p>
-                  )}
-                  {result.categories.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {result.categories.slice(0, 3).map(c => (
-                        <span key={c} className="text-xs bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded-full">
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between mt-auto">
-                    <span className="text-xs text-neutral-600 capitalize">{result.source.replace('_', ' ')}</span>
-                    <button
-                      onClick={() => handleImport(result)}
-                      disabled={isImported || isImporting}
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                        isImported
-                          ? 'bg-emerald-900/40 text-emerald-400 cursor-default'
-                          : 'bg-violet-600 hover:bg-violet-500 text-white'
-                      }`}
-                    >
-                      {isImported ? <FiCheck size={12} /> : <FiPlus size={12} />}
-                      {isImporting ? 'Adicionando...' : isImported ? 'Adicionado' : 'Adicionar à Lista'}
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
       </section>
     </div>
   )

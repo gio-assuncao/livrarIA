@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+import { FiPlus } from 'react-icons/fi'
 import { useState } from 'react'
 import { useBooks, useUpdateBook, useDeleteBook } from '../hooks/useBooks'
 import BookGrid from '../components/BookGrid'
@@ -33,9 +35,18 @@ export default function Wishlist() {
         />
       )}
 
-      <div className="mb-8">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">Lista de Desejos</h1>
-        <p className="text-neutral-500 text-sm mt-1">Livros que você quer ler.</p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">Lista de Desejos</h1>
+          <p className="text-neutral-500 text-sm mt-1">Livros que você quer ler.</p>
+        </div>
+        <Link
+          to="/add"
+          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shrink-0"
+        >
+          <FiPlus size={15} />
+          Adicionar
+        </Link>
       </div>
 
       {isLoading ? (
