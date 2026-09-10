@@ -20,3 +20,99 @@
     box-sizing: border-box;
   }
 }
+
+/* ── Sticker album ─────────────────────────────────────────────────────────── */
+
+/* Landing squash: played by the slot sticker right after the flight clone lands */
+@keyframes sticker-settle {
+  0%   { transform: scale(1.06, 0.94); }
+  45%  { transform: scale(0.97, 1.03); }
+  75%  { transform: scale(1.015, 0.99); }
+  100% { transform: scale(1, 1); }
+}
+
+.sticker-paste {
+  animation: sticker-settle 0.38s cubic-bezier(0.3, 1.2, 0.4, 1) both;
+}
+
+@keyframes holo-shift {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.holo-overlay {
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 0, 255, 0.28) 36%,
+    rgba(0, 255, 255, 0.28) 50%,
+    rgba(255, 255, 0, 0.22) 64%,
+    transparent 80%
+  );
+  background-size: 200% 200%;
+  animation: holo-shift 2.6s linear infinite;
+}
+
+/* Sticker coming out of a freshly opened pack */
+@keyframes sticker-reveal {
+  0%   { transform: translateY(28px) scale(0.25) rotate(-14deg); opacity: 0; }
+  60%  { transform: translateY(-8px) scale(1.09) rotate(4deg); opacity: 1; }
+  100% { transform: translateY(0) scale(1) rotate(0deg); }
+}
+
+.sticker-reveal {
+  animation: sticker-reveal 0.55s cubic-bezier(0.25, 1.35, 0.4, 1) both;
+}
+
+/* Destination slot glows while its sticker is in the air */
+@keyframes slot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+  50%      { box-shadow: 0 0 20px 3px rgba(139, 92, 246, 0.5); }
+}
+
+.slot-target {
+  border-color: rgb(167 139 250) !important;
+  animation: slot-pulse 0.9s ease-in-out infinite;
+}
+
+/* Confetti / sparkle particles (direction injected via CSS vars) */
+.particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 60;
+  animation: particle-fly 0.8s cubic-bezier(0.2, 0.7, 0.4, 1) both;
+}
+
+@keyframes particle-fly {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* Foil shine sweeping across the sealed pack */
+.foil-shine {
+  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.4) 48%, transparent 62%);
+  background-size: 250% 100%;
+  animation: holo-shift 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker-reveal,
+  .sticker-paste,
+  .holo-overlay,
+  .foil-shine,
+  .slot-target,
+  .particle {
+    animation: none !important;
+  }
+}

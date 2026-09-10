@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Book, UserBook
+from models import Book, UserBook, utcnow
 from schemas import AddBookRequest, BookRead, UserBookRead, UserBookUpdate
 from services.embedding import embedding_service
 
@@ -81,6 +81,12 @@ def update_user_book(book_id: int, payload: UserBookUpdate, db: Session = Depend
         ub.tags = payload.tags
     if payload.review is not None:
         ub.review = payload.review
+    if payload.pasted is not None:
+        ub.pasted_at = utcnow() if payload.pasted else None
+        if payload.pasted and ub.revealed_at is None:
+            ub.revealed_at = ub.pasted_at  # pasting implies the sticker left its pack
+    if payload.revealed is not None:
+        ub.revealed_at = utcnow() if payload.revealed else None
 
     # Update Book fields if provided
     book = ub.book

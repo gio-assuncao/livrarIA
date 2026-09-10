@@ -337,3 +337,30 @@ def test_wishlist_books_do_not_affect_profile_or_candidates(client):
     assert [x["title"] for x in before] == [x["title"] for x in after]
     assert [x["score"] for x in before] == [x["score"] for x in after]
     assert recommender_service.size == catalog_size_before
+
+
+def test_paste_reveal_and_peel_sticker(client):
+    ub = client.get("/api/books", params={"status": "read"}).json()[0]
+    assert ub["pasted_at"] is None
+    assert ub["revealed_at"] is None
+
+    # Opening the pack reveals without pasting
+    revealed = client.patch(f"/api/books/{ub['id']}", json={"revealed": True}).json()
+    assert revealed["revealed_at"] is not None and revealed["pasted_at"] is None
+
+    pasted = client.patch(f"/api/books/{ub['id']}", json={"pasted": True}).json()
+    assert pasted["pasted_at"] is not None
+
+    # Peeling clears the paste but the sticker stays revealed (never back in a pack)
+    peeled = client.patch(f"/api/books/{ub['id']}", json={"pasted": False}).json()
+    assert peeled["pasted_at"] is None
+    assert peeled["revealed_at"] is not None
+
+
+def test_pasting_unrevealed_sticker_implies_reveal(client):
+    ub = client.get("/api/books", params={"status": "read"}).json()[1]
+    assert ub["revealed_at"] is None
+
+    pasted = client.patch(f"/api/books/{ub['id']}", json={"pasted": True}).json()
+    assert pasted["pasted_at"] is not None
+    assert pasted["revealed_at"] is not None  # paste implies the sticker left its pack

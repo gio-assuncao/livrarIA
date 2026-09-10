@@ -46,6 +46,8 @@ class UserBookRead(BaseModel):
     tags: List[str]
     review: Optional[str]
     created_at: datetime
+    pasted_at: Optional[datetime] = None
+    revealed_at: Optional[datetime] = None
     book: BookRead
 
 
@@ -55,6 +57,8 @@ class UserBookUpdate(BaseModel):
     status: Optional[BookStatus] = None
     tags: Optional[List[str]] = None
     review: Optional[str] = None
+    pasted: Optional[bool] = None  # album: True pastes the sticker, False peels it off
+    revealed: Optional[bool] = None  # album: True marks the sticker as out of its pack
     # Book fields (optional — only updated if provided)
     title: Optional[str] = None
     author: Optional[str] = None

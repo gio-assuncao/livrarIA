@@ -36,6 +36,8 @@ class UserBook(Base):
     tags = Column(JSON, default=list)  # list of strings
     review = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+    pasted_at = Column(DateTime, nullable=True)  # when the sticker was pasted in the album
+    revealed_at = Column(DateTime, nullable=True)  # when the sticker came out of its pack
 
     book = relationship("Book", back_populates="user_books")
 

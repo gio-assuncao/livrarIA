@@ -18,6 +18,8 @@ export interface UserBook {
   review: string | null
   created_at: string
   book: Book
+  pasted_at: string | null
+  revealed_at: string | null
 }
 
 export interface AddBookPayload {
@@ -39,6 +41,8 @@ export interface UserBookUpdate {
   tags?: string[]
   review?: string
   title?: string
+  pasted?: boolean
+  revealed?: boolean
   author?: string
   description?: string
   categories?: string[]

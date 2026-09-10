@@ -8,6 +8,7 @@ A local-first intelligent book recommendation system with an LLM-powered agent i
 - Get personalized recommendations via hybrid semantic + category ranking
 - Search books from Google Books and Open Library
 - Book covers fetched automatically from both sources
+- Sticker album: every book you read becomes a collectible sticker to paste in — 5★ books get a holographic sticker
 - Chat with an AI librarian (any OpenRouter model) that explains *why* it recommends each book
 - Clean, dark-mode UI
 

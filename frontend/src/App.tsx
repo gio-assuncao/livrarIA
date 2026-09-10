@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NavBar from './components/NavBar'
 import Dashboard from './pages/Dashboard'
 import Wishlist from './pages/Wishlist'
+import Album from './pages/Album'
 import AddBook from './pages/AddBook'
 import Chat from './pages/Chat'
 import { useTheme } from './hooks/useTheme'
@@ -26,6 +27,7 @@ function AppInner() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/wishlist" element={<Wishlist />} />
+          <Route path="/album" element={<Album />} />
           <Route path="/add" element={<AddBook />} />
           <Route path="/chat" element={<Chat />} />
         </Routes>

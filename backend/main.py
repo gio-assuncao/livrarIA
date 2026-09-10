@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _NEW_COLUMNS = {
     "books": [("external_id", "VARCHAR"), ("cover_url", "VARCHAR")],
     "cache_books": [("created_at", "DATETIME"), ("cover_url", "VARCHAR")],
+    "user_books": [("pasted_at", "DATETIME"), ("revealed_at", "DATETIME")],
 }
 
 
@@ -33,6 +34,12 @@ def _apply_light_migrations():
                 if name not in existing:
                     logger.info(f"Migrating: adding {table}.{name}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        # Backfill invariants (idempotent): a pasted sticker was necessarily revealed.
+        if "user_books" in insp.get_table_names():
+            conn.execute(text(
+                "UPDATE user_books SET revealed_at = pasted_at "
+                "WHERE pasted_at IS NOT NULL AND revealed_at IS NULL"
+            ))
 
 
 @asynccontextmanager

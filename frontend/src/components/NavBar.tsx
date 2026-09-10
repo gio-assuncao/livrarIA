@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { FiBook, FiHeart, FiPlusCircle, FiMessageSquare, FiSun, FiMoon } from 'react-icons/fi'
+import { FiBook, FiHeart, FiPlusCircle, FiMessageSquare, FiSun, FiMoon, FiStar } from 'react-icons/fi'
 
 const links = [
   { to: '/', label: 'Início', icon: FiBook },
   { to: '/wishlist', label: 'Lista de Desejos', icon: FiHeart },
+  { to: '/album', label: 'Álbum', icon: FiStar },
   { to: '/add', label: 'Adicionar', icon: FiPlusCircle },
   { to: '/chat', label: 'Chat', icon: FiMessageSquare },
 ]
