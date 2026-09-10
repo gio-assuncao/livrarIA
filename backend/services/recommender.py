@@ -240,11 +240,21 @@ class RecommenderService:
 
     # ── User profile ───────────────────────────────────────────────────────────
 
+    # Ratings are centered on RATING_NEUTRAL: above it a book attracts the
+    # profile, below it the book *repels* (negative weight). Unrated reads
+    # count as a mild positive — the user chose to read them.
+    RATING_NEUTRAL = 2.5
+    UNRATED_WEIGHT = 1.0
+
+    def _signed_weight(self, rating: Optional[int]) -> float:
+        return (float(rating) - self.RATING_NEUTRAL) if rating else self.UNRATED_WEIGHT
+
     def compute_user_profile(self, user_books) -> Optional[np.ndarray]:
         """
-        Weighted average of read/reading book embeddings.
-        Weight = rating (1-5). Books without rating use weight=2.
-        Returns a normalized numpy vector, or None if no data.
+        Signed weighted average of read/reading book embeddings.
+        Weight = rating - 2.5 (5* = +2.5 ... 1* = -1.5), unrated = +1.
+        Low-rated books push the profile away from what the user disliked.
+        Returns a normalized numpy vector, or None if no usable signal.
         """
         weighted_sum = np.zeros(self.dim, dtype=np.float32)
         total_weight = 0.0
@@ -253,38 +263,39 @@ class RecommenderService:
             book = ub.book
             if not book or not book.embedding or len(book.embedding) != self.dim:
                 continue
-            weight = float(ub.rating) if ub.rating else 2.0
+            weight = self._signed_weight(ub.rating)
             weighted_sum += weight * np.asarray(book.embedding, dtype=np.float32)
-            total_weight += weight
+            total_weight += abs(weight)
 
         if total_weight == 0:
             return None
 
         profile = weighted_sum / total_weight
         norm = np.linalg.norm(profile)
-        if norm > 0:
-            profile = profile / norm
-        return profile
+        if norm < 1e-6:
+            return None  # positive and negative signals cancelled out
+        return profile / norm
 
     @staticmethod
     def liked_categories(user_books) -> Set[str]:
-        """Canonical category tokens across the user's read/reading books."""
+        """Canonical category tokens across books the user liked (rating >= 3 or unrated)."""
         cats: Set[str] = set()
         for ub in user_books:
-            if ub.book:
+            if ub.book and (ub.rating is None or ub.rating >= 3):
                 cats |= normalize_categories(ub.book.categories)
         return cats
 
-    @staticmethod
-    def top_interests(user_books, n_authors: int = 3, n_categories: int = 3) -> Tuple[List[str], List[str]]:
-        """Most frequent authors and raw categories — used by the discover step."""
+    def top_interests(self, user_books, n_authors: int = 3, n_categories: int = 3) -> Tuple[List[str], List[str]]:
+        """Most frequent authors and raw categories among liked books — used by the discover step."""
         authors: Counter = Counter()
         cats: Counter = Counter()
         for ub in user_books:
             b = ub.book
             if not b:
                 continue
-            weight = ub.rating or 2
+            weight = self._signed_weight(ub.rating)
+            if weight <= 0:
+                continue  # don't grow the catalog toward books the user disliked
             if b.author and b.author.lower() != "unknown":
                 authors[b.author] += weight
             for c in b.categories or []:

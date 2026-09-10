@@ -111,8 +111,7 @@ Two separate sets of books are involved:
 
 - **Library** (`books` + `user_books`) — what you've read, are reading, or want to read. Read/reading books build your profile; nothing in the library is ever recommended back to you.
 - **Catalog** (`cache_books`) — every book that ever came back from an external search (manual search on the Add page, the chat agent's `search_books`, or **Discover**). This is the candidate pool, and the FAISS index is built over it. Each entry stores the book's cover URL (Google Books `imageLinks`, Open Library covers API); entries cached before covers existed are backfilled the next time they appear in a search.
-
-1. **User profile** — weighted average of the embeddings of read/reading books (weight = rating 1–5, unrated = 2)
+1. **User profile** — signed weighted average of the embeddings of read/reading books: weight = `rating − 2.5` (5★ = +2.5 … 1★ = −1.5, unrated = +1), so low-rated books *push the profile away* from what you disliked. Categories of books rated ≤ 2 are also excluded from the category-overlap signal, and **Discover** never grows the catalog toward disliked authors/genres.
 2. **Candidates** — FAISS (`IndexIDMap` over `IndexFlatIP`) search over the catalog, over-fetching 5× `limit`; books already in the library (same `external_id` + `source`) are dropped
 3. **Hybrid score** — `semantic_similarity * 0.6 + category_overlap * 0.3 + freshness * 0.1`
    - category overlap is Jaccard over *normalized* categories: `"Fiction / Thrillers / Suspense"`, `"Thrillers"` and `"Suspense"` all map to the same canonical tokens, bridging Google Books, Open Library and Portuguese labels
